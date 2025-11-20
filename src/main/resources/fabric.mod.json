@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "minesongs",
+  "version": "1.0.0",
+  "name": "MineSongs",
+  "description": "Play music from various sources in Minecraft",
+  "authors": ["NLS Server"],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/minesongs/textures/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "nls.minesongs.Minesongs"
+    ],
+    "client": [
+      "nls.minesongs.client.MinesongsClient"
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "minecraft": "1.21",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
