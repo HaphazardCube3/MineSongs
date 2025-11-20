@@ -2,5 +2,14 @@
   "key.minesongs.play_pause": "Play/Pause Music",
   "key.minesongs.skip": "Skip Track",
   "key.minesongs.open_gui": "Open Music Player",
-  "category.minesongs.music": "MineSongs"
+  "category.minesongs.music": "MineSongs",
+
+  "gui.minesongs.title": "MineSongs Player",
+  "gui.minesongs.play": "Play",
+  "gui.minesongs.pause": "Pause",
+  "gui.minesongs.stop": "Stop",
+  "gui.minesongs.url_hint": "Enter audio URL here",
+  "gui.minesongs.current_track": "Now Playing: %s",
+  "gui.minesongs.volume": "Volume: %d%%",
+  "gui.minesongs.press_enter": "Press Enter to play"
 }

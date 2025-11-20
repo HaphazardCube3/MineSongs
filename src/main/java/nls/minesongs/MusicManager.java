@@ -13,6 +13,8 @@ public class MusicManager {
     private static String currentTrack = "";
     private static ScheduledExecutorService executor;
     private static Clip currentClip;
+    private static FloatControl volumeControl;
+    private static float currentVolume = 80.0f; // Default volume 80%
 
     public static void playFromURL(String url) {
         stopCurrentPlayback();
@@ -81,18 +83,16 @@ public class MusicManager {
 
                 currentClip = (Clip) AudioSystem.getLine(info);
                 currentClip.open(audioStream);
-                currentClip.start();
 
+                // Setup volume control
+                setupVolumeControl();
+
+                currentClip.start();
                 isPlaying = true;
                 Minesongs.LOGGER.info("Playback started successfully!");
 
-                currentClip.addLineListener(event -> {
-                    if (event.getType() == LineEvent.Type.STOP) {
-                        isPlaying = false;
-                        currentClip.close();
-                        Minesongs.LOGGER.info("Playback finished");
-                    }
-                });
+                // Use a simpler approach without LineListener to avoid pause issues
+                // The clip will stay open until we explicitly close it
 
             } catch (Exception e) {
                 Minesongs.LOGGER.error("Failed to play audio: {}", e.getMessage());
@@ -100,6 +100,40 @@ public class MusicManager {
                 isPlaying = false;
             }
         });
+    }
+
+    private static void setupVolumeControl() {
+        if (currentClip != null && currentClip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
+            volumeControl = (FloatControl) currentClip.getControl(FloatControl.Type.MASTER_GAIN);
+            setVolume(currentVolume); // Apply current volume
+            Minesongs.LOGGER.info("Volume control initialized");
+        } else {
+            volumeControl = null;
+            Minesongs.LOGGER.warn("Volume control not supported for this audio clip");
+        }
+    }
+
+    public static void setVolume(float volume) {
+        // Clamp volume between 0 and 100
+        currentVolume = Math.max(0, Math.min(100, volume));
+
+        if (volumeControl != null) {
+            try {
+                // Convert from 0-100 scale to decibels
+                float min = volumeControl.getMinimum();
+                float max = volumeControl.getMaximum();
+                // Logarithmic scale for better perceived volume control
+                float db = min + (max - min) * (float)(Math.log10(currentVolume / 10.0 + 1));
+                volumeControl.setValue(db);
+                Minesongs.LOGGER.info("Volume set to: {}% ({} dB)", currentVolume, db);
+            } catch (Exception e) {
+                Minesongs.LOGGER.error("Failed to set volume: {}", e.getMessage());
+            }
+        }
+    }
+
+    public static float getVolume() {
+        return currentVolume;
     }
 
     private static String extractWithYtDlp(String youtubeUrl) {
@@ -234,7 +268,7 @@ public class MusicManager {
         } else {
             Minesongs.LOGGER.error("FFmpeg not found at: {}", ffmpegExe.getAbsolutePath());
 
-            // Fallback: try to find it in PATHs
+            // Fallback: try to find it in PATH
             try {
                 Process process = Runtime.getRuntime().exec(new String[]{"where", "ffmpeg"});
                 BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -285,7 +319,7 @@ public class MusicManager {
     }
 
     public static void togglePlayPause() {
-        if (currentClip != null) {
+        if (currentClip != null && currentClip.isOpen()) {
             if (isPlaying) {
                 currentClip.stop();
                 isPlaying = false;
@@ -295,6 +329,8 @@ public class MusicManager {
                 isPlaying = true;
                 Minesongs.LOGGER.info("Playback resumed");
             }
+        } else {
+            Minesongs.LOGGER.warn("No audio clip to play/pause");
         }
     }
 
@@ -308,6 +344,7 @@ public class MusicManager {
             currentClip.stop();
             currentClip.close();
             currentClip = null;
+            volumeControl = null;
         }
         if (executor != null && !executor.isShutdown()) {
             executor.shutdownNow();
