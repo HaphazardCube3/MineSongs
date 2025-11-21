@@ -4,7 +4,9 @@ import javax.sound.sampled.*;
 import java.io.*;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -15,6 +17,10 @@ public class MusicManager {
     private static Clip currentClip;
     private static FloatControl volumeControl;
     private static float currentVolume = 80.0f; // Default volume 80%
+
+    // Queue system
+    private static Queue<String> songQueue = new LinkedList<>();
+    private static boolean isLooping = false;
 
     public static void playFromURL(String url) {
         stopCurrentPlayback();
@@ -33,12 +39,14 @@ public class MusicManager {
                     audioUrl = extractWithYtDlp(url);
                     if (audioUrl == null) {
                         Minesongs.LOGGER.error("Failed to extract YouTube audio");
+                        playNextInQueue(); // Try next song if this one fails
                         return;
                     }
                 }
                 // Handle Spotify URLs (will need more complex setup)
                 else if (url.contains("spotify.com")) {
                     Minesongs.LOGGER.error("Spotify integration requires additional setup");
+                    playNextInQueue(); // Try next song
                     return;
                 }
 
@@ -78,6 +86,7 @@ public class MusicManager {
                 DataLine.Info info = new DataLine.Info(Clip.class, format);
                 if (!AudioSystem.isLineSupported(info)) {
                     Minesongs.LOGGER.error("No audio line supported for this format");
+                    playNextInQueue(); // Try next song
                     return;
                 }
 
@@ -87,19 +96,77 @@ public class MusicManager {
                 // Setup volume control
                 setupVolumeControl();
 
+                // Add listener to automatically play next song when current finishes
+                currentClip.addLineListener(event -> {
+                    if (event.getType() == LineEvent.Type.STOP && isPlaying) {
+                        // Only trigger next song if we're still playing (not paused)
+                        Minesongs.LOGGER.info("Song finished, checking queue...");
+                        if (isLooping) {
+                            // Loop current song
+                            currentClip.setFramePosition(0);
+                            currentClip.start();
+                            Minesongs.LOGGER.info("Looping current song");
+                        } else {
+                            playNextInQueue();
+                        }
+                    }
+                });
+
                 currentClip.start();
                 isPlaying = true;
                 Minesongs.LOGGER.info("Playback started successfully!");
-
-                // Use a simpler approach without LineListener to avoid pause issues
-                // The clip will stay open until we explicitly close it
 
             } catch (Exception e) {
                 Minesongs.LOGGER.error("Failed to play audio: {}", e.getMessage());
                 e.printStackTrace();
                 isPlaying = false;
+                playNextInQueue(); // Try next song if this one fails
             }
         });
+    }
+
+    // Queue management methods
+    public static void addToQueue(String url) {
+        songQueue.offer(url);
+        Minesongs.LOGGER.info("Added to queue: {}. Queue size: {}", url, songQueue.size());
+    }
+
+    public static void playNextInQueue() {
+        if (!songQueue.isEmpty()) {
+            String nextUrl = songQueue.poll();
+            Minesongs.LOGGER.info("Playing next in queue: {}", nextUrl);
+            playFromURL(nextUrl);
+        } else {
+            Minesongs.LOGGER.info("Queue is empty");
+            stopCurrentPlayback();
+        }
+    }
+
+    public static void clearQueue() {
+        songQueue.clear();
+        Minesongs.LOGGER.info("Queue cleared");
+    }
+
+    public static void skipToNext() {
+        Minesongs.LOGGER.info("Skipping to next song");
+        playNextInQueue();
+    }
+
+    public static List<String> getQueue() {
+        return new ArrayList<>(songQueue);
+    }
+
+    public static int getQueueSize() {
+        return songQueue.size();
+    }
+
+    public static void toggleLoop() {
+        isLooping = !isLooping;
+        Minesongs.LOGGER.info("Loop mode: {}", isLooping ? "ON" : "OFF");
+    }
+
+    public static boolean isLooping() {
+        return isLooping;
     }
 
     private static void setupVolumeControl() {
@@ -335,8 +402,8 @@ public class MusicManager {
     }
 
     public static void skipTrack() {
-        stopCurrentPlayback();
-        Minesongs.LOGGER.info("Track skipped");
+        Minesongs.LOGGER.info("Skipping current track");
+        playNextInQueue();
     }
 
     public static void stopCurrentPlayback() {

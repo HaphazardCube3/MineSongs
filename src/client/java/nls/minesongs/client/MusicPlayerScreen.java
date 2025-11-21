@@ -47,22 +47,40 @@ public class MusicPlayerScreen extends Screen {
             playCurrentURL();
         }).dimensions(this.width / 2 - 100, 120, 200, 20).build());
 
+        // Add to Queue button
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("Add to Queue"), button -> {
+            String url = urlField.getText();
+            if (!url.isEmpty()) {
+                nls.minesongs.MusicManager.addToQueue(url);
+                urlField.setText(""); // Clear field after adding
+            }
+        }).dimensions(this.width / 2 - 100, 150, 200, 20).build());
+
         // Play/Pause button
         this.addDrawableChild(ButtonWidget.builder(Text.literal("Play/Pause"), button -> {
             nls.minesongs.MusicManager.togglePlayPause();
-        }).dimensions(this.width / 2 - 100, 150, 200, 20).build());
+        }).dimensions(this.width / 2 - 100, 180, 200, 20).build());
 
         // Stop button
         this.addDrawableChild(ButtonWidget.builder(Text.literal("Stop"), button -> {
             nls.minesongs.MusicManager.skipTrack();
-        }).dimensions(this.width / 2 - 100, 180, 200, 20).build());
-
-        // Current track status
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("Status"), button -> {
-            boolean playing = nls.minesongs.MusicManager.isIsPlaying();
-            String current = nls.minesongs.MusicManager.getCurrentTrack();
-            nls.minesongs.Minesongs.LOGGER.info("Status - Playing: {}, Track: {}", playing, current);
         }).dimensions(this.width / 2 - 100, 210, 200, 20).build());
+
+        // Next Song button
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("Next Song"), button -> {
+            nls.minesongs.MusicManager.skipToNext();
+        }).dimensions(this.width / 2 - 100, 240, 200, 20).build());
+
+        // Clear Queue button
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("Clear Queue"), button -> {
+            nls.minesongs.MusicManager.clearQueue();
+        }).dimensions(this.width / 2 - 100, 270, 200, 20).build());
+
+        // Loop toggle button
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("Loop: " + (nls.minesongs.MusicManager.isLooping() ? "ON" : "OFF")), button -> {
+            nls.minesongs.MusicManager.toggleLoop();
+            button.setMessage(Text.literal("Loop: " + (nls.minesongs.MusicManager.isLooping() ? "ON" : "OFF")));
+        }).dimensions(this.width / 2 - 100, 300, 200, 20).build());
 
         // Set initial focus to the URL field so user can type immediately
         this.setInitialFocus(urlField);
@@ -93,14 +111,25 @@ public class MusicPlayerScreen extends Screen {
 
         // Display current track status
         boolean playing = nls.minesongs.MusicManager.isIsPlaying();
-        String status = playing ? "Now Playing" : "Stopped";
+        String status = "Stopped";
+        if (nls.minesongs.MusicManager.getCurrentTrack() != null && !nls.minesongs.MusicManager.getCurrentTrack().isEmpty()) {
+            status = playing ? "Now Playing" : "Paused";
+        }
         context.drawTextWithShadow(this.textRenderer, Text.literal("Status: " + status), this.width / 2 - 150, 40, 0xFFFFFF);
 
         // Display current volume
-        context.drawTextWithShadow(this.textRenderer, Text.literal("Volume: " + (int)nls.minesongs.MusicManager.getVolume() + "%"), this.width / 2 - 150, 230, 0xFFFFFF);
+        context.drawTextWithShadow(this.textRenderer, Text.literal("Volume: " + (int)nls.minesongs.MusicManager.getVolume() + "%"), this.width / 2 - 150, 320, 0xFFFFFF);
+
+        // Display queue information
+        int queueSize = nls.minesongs.MusicManager.getQueueSize();
+        context.drawTextWithShadow(this.textRenderer, Text.literal("Queue: " + queueSize + " songs"), this.width / 2 - 150, 340, 0xFFFFFF);
+
+        // Display loop status
+        String loopStatus = nls.minesongs.MusicManager.isLooping() ? "ON" : "OFF";
+        context.drawTextWithShadow(this.textRenderer, Text.literal("Loop: " + loopStatus), this.width / 2 - 150, 360, 0xFFFFFF);
 
         // Display "Press Enter to play" hint
-        context.drawTextWithShadow(this.textRenderer, Text.literal("Press Enter to play"), this.width / 2 - 150, 250, 0xAAAAAA);
+        context.drawTextWithShadow(this.textRenderer, Text.literal("Press Enter to play"), this.width / 2 - 150, 380, 0xAAAAAA);
 
         super.render(context, mouseX, mouseY, delta);
     }

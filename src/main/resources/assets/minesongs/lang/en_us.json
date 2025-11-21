@@ -11,5 +11,10 @@
   "gui.minesongs.url_hint": "Enter audio URL here",
   "gui.minesongs.current_track": "Now Playing: %s",
   "gui.minesongs.volume": "Volume: %d%%",
-  "gui.minesongs.press_enter": "Press Enter to play"
+  "gui.minesongs.press_enter": "Press Enter to play",
+  "gui.minesongs.add_to_queue": "Add to Queue",
+  "gui.minesongs.next_song": "Next Song",
+  "gui.minesongs.clear_queue": "Clear Queue",
+  "gui.minesongs.loop": "Loop: %s",
+  "gui.minesongs.queue_size": "Queue: %d songs"
 }
