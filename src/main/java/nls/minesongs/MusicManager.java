@@ -1,7 +1,8 @@
 package nls.minesongs;
 
-import javax.sound.sampled.*;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -9,6 +10,14 @@ import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
+import javax.sound.sampled.DataLine;
+import javax.sound.sampled.FloatControl;
+import javax.sound.sampled.LineEvent;
 
 public class MusicManager {
     private static boolean isPlaying = false;
@@ -22,9 +31,17 @@ public class MusicManager {
     private static Queue<String> songQueue = new LinkedList<>();
     private static boolean isLooping = false;
 
+    // NEW: Track manual pauses
+    private static boolean wasManuallyPaused = false;
+
     public static void playFromURL(String url) {
-        stopCurrentPlayback();
+        // Store current state to avoid unnecessary "Stopped" notification
+        boolean wasSomethingPlaying = (currentClip != null && isPlaying);
+
+        // Call stop without triggering HUD notification when immediately starting new song
+        stopCurrentPlaybackSilent();
         currentTrack = url;
+        wasManuallyPaused = false;
 
         executor = Executors.newSingleThreadScheduledExecutor();
         executor.execute(() -> {
@@ -96,25 +113,36 @@ public class MusicManager {
                 // Setup volume control
                 setupVolumeControl();
 
-                // Add listener to automatically play next song when current finishes
+                // UPDATED LineListener with pause detection
                 currentClip.addLineListener(event -> {
-                    if (event.getType() == LineEvent.Type.STOP && isPlaying) {
-                        // Only trigger next song if we're still playing (not paused)
-                        Minesongs.LOGGER.info("Song finished, checking queue...");
-                        if (isLooping) {
-                            // Loop current song
-                            currentClip.setFramePosition(0);
-                            currentClip.start();
-                            Minesongs.LOGGER.info("Looping current song");
-                        } else {
-                            playNextInQueue();
+                    if (event.getType() == LineEvent.Type.STOP) {
+                        Minesongs.LOGGER.info("LineEvent STOP detected - isPlaying: {}, wasManuallyPaused: {}",
+                                isPlaying, wasManuallyPaused);
+
+                        // Only advance if this wasn't a manual pause
+                        if (isPlaying && !wasManuallyPaused) {
+                            Minesongs.LOGGER.info("Song finished naturally, checking queue...");
+                            if (isLooping) {
+                                currentClip.setFramePosition(0);
+                                currentClip.start();
+                                Minesongs.LOGGER.info("Looping current song");
+                            } else {
+                                playNextInQueue();
+                            }
+                        } else if (wasManuallyPaused) {
+                            Minesongs.LOGGER.info("Stop event due to manual pause - keeping clip alive");
+                            // Don't close the clip or advance queue
                         }
                     }
                 });
 
                 currentClip.start();
                 isPlaying = true;
+                wasManuallyPaused = false;
                 Minesongs.LOGGER.info("Playback started successfully!");
+
+                // NEW: Trigger HUD notification when song starts playing
+                triggerHudNotification(true, extractSongTitleFromUrl(url));
 
             } catch (Exception e) {
                 Minesongs.LOGGER.error("Failed to play audio: {}", e.getMessage());
@@ -123,6 +151,82 @@ public class MusicManager {
                 playNextInQueue(); // Try next song if this one fails
             }
         });
+    }
+
+    // NEW: Silent version of stopCurrentPlayback that doesn't trigger HUD notifications
+    private static void stopCurrentPlaybackSilent() {
+        // Only fully stop if not manually paused
+        if (!wasManuallyPaused) {
+            if (currentClip != null) {
+                currentClip.stop();
+                currentClip.close();
+                currentClip = null;
+                volumeControl = null;
+            }
+            if (executor != null && !executor.isShutdown()) {
+                executor.shutdownNow();
+            }
+            isPlaying = false;
+            Minesongs.LOGGER.info("Playback fully stopped (silent)");
+            // NOTE: No HUD notification triggered here!
+        } else {
+            Minesongs.LOGGER.info("Playback already paused manually - skipping full stop");
+        }
+    }
+
+    // NEW: Helper method to extract song title from URL
+    private static String extractSongTitleFromUrl(String url) {
+        if (url.contains("youtube.com") || url.contains("youtu.be")) {
+            try {
+                // Try to extract video title from YouTube URL
+                if (url.contains("v=")) {
+                    String videoId = url.substring(url.indexOf("v=") + 2);
+                    if (videoId.contains("&")) {
+                        videoId = videoId.substring(0, videoId.indexOf("&"));
+                    }
+                    return "YouTube Video (" + videoId.substring(0, Math.min(8, videoId.length())) + "...)";
+                } else if (url.contains("youtu.be/")) {
+                    String videoId = url.substring(url.indexOf("youtu.be/") + 9);
+                    if (videoId.contains("?")) {
+                        videoId = videoId.substring(0, videoId.indexOf("?"));
+                    }
+                    return "YouTube Video (" + videoId.substring(0, Math.min(8, videoId.length())) + "...)";
+                }
+                return "YouTube Music";
+            } catch (Exception e) {
+                return "YouTube Music";
+            }
+        }
+        // For local files
+        else if (url.startsWith("file://")) {
+            String filePath = url.substring(7);
+            File file = new File(filePath);
+            String fileName = file.getName();
+            // Remove extension
+            if (fileName.contains(".")) {
+                fileName = fileName.substring(0, fileName.lastIndexOf('.'));
+            }
+            return fileName;
+        }
+        // For other URLs
+        else if (url.startsWith("http")) {
+            return "Online Audio";
+        }
+        return "Custom Audio";
+    }
+
+    // NEW: Method to trigger HUD notifications
+    private static void triggerHudNotification(boolean playing, String songTitle) {
+        try {
+            // Use reflection to avoid direct dependency in case HUD class isn't available
+            Class<?> hudClass = Class.forName("nls.minesongs.client.MusicHud");
+            java.lang.reflect.Method method = hudClass.getMethod("onPlaybackStateChanged", boolean.class, String.class);
+            method.invoke(null, playing, songTitle);
+            Minesongs.LOGGER.info("HUD notification triggered: {} - {}", playing ? "Playing" : "Paused", songTitle);
+        } catch (Exception e) {
+            // Silently fail if HUD class isn't available (shouldn't happen in normal operation)
+            Minesongs.LOGGER.debug("Could not trigger HUD notification: {}", e.getMessage());
+        }
     }
 
     // Queue management methods
@@ -135,10 +239,24 @@ public class MusicManager {
         if (!songQueue.isEmpty()) {
             String nextUrl = songQueue.poll();
             Minesongs.LOGGER.info("Playing next in queue: {}", nextUrl);
+            wasManuallyPaused = false; // Reset for new track
             playFromURL(nextUrl);
         } else {
-            Minesongs.LOGGER.info("Queue is empty");
-            stopCurrentPlayback();
+            Minesongs.LOGGER.info("Queue is empty - fully stopping playback");
+            // Force stop even if manually paused
+            if (currentClip != null) {
+                currentClip.stop();
+                currentClip.close();
+                currentClip = null;
+            }
+            if (executor != null && !executor.isShutdown()) {
+                executor.shutdownNow();
+            }
+            isPlaying = false;
+            wasManuallyPaused = false;
+
+            // NEW: Trigger stopped notification when queue is empty
+            triggerHudNotification(false, "Queue empty");
         }
     }
 
@@ -167,6 +285,73 @@ public class MusicManager {
 
     public static boolean isLooping() {
         return isLooping;
+    }
+
+    // UPDATED togglePlayPause method with HUD notifications
+    public static void togglePlayPause() {
+        if (currentClip != null && currentClip.isOpen()) {
+            boolean wasRunning = currentClip.isRunning();
+            if (wasRunning) {
+                // Pause the playback
+                currentClip.stop();
+                isPlaying = false;
+                wasManuallyPaused = true; // Mark as manually paused
+                Minesongs.LOGGER.info("Playback manually paused - clip kept alive");
+
+                // NEW: Trigger paused notification
+                triggerHudNotification(false, extractSongTitleFromUrl(currentTrack));
+            } else {
+                // Resume playback
+                currentClip.start();
+                isPlaying = true;
+                wasManuallyPaused = false; // Reset manual pause flag
+                Minesongs.LOGGER.info("Playback manually resumed");
+
+                // NEW: Trigger playing notification
+                triggerHudNotification(true, extractSongTitleFromUrl(currentTrack));
+            }
+        } else {
+            Minesongs.LOGGER.warn("No audio clip available to play/pause");
+        }
+    }
+
+    // UPDATED skipTrack with HUD notifications
+    public static void skipTrack() {
+        Minesongs.LOGGER.info("Skipping current track");
+        String currentSong = extractSongTitleFromUrl(currentTrack);
+        playNextInQueue();
+
+        // NEW: Show skipping notification
+        try {
+            Class<?> hudClass = Class.forName("nls.minesongs.client.MusicHud");
+            java.lang.reflect.Method method = hudClass.getMethod("showStopped", String.class);
+            method.invoke(null, "Skipped: " + currentSong);
+        } catch (Exception e) {
+            // Silently fail
+        }
+    }
+
+    // UPDATED stopCurrentPlayback to respect manual pauses
+    public static void stopCurrentPlayback() {
+        // Only fully stop if not manually paused
+        if (!wasManuallyPaused) {
+            if (currentClip != null) {
+                currentClip.stop();
+                currentClip.close();
+                currentClip = null;
+                volumeControl = null;
+            }
+            if (executor != null && !executor.isShutdown()) {
+                executor.shutdownNow();
+            }
+            isPlaying = false;
+            Minesongs.LOGGER.info("Playback fully stopped");
+
+            // NEW: Trigger stopped notification
+            triggerHudNotification(false, "Playback stopped");
+        } else {
+            Minesongs.LOGGER.info("Playback already paused manually - skipping full stop");
+        }
     }
 
     private static void setupVolumeControl() {
@@ -201,6 +386,39 @@ public class MusicManager {
 
     public static float getVolume() {
         return currentVolume;
+    }
+
+    public static boolean isIsPlaying() {
+        return isPlaying;
+    }
+
+    public static String getCurrentTrack() {
+        return currentTrack;
+    }
+
+    // NEW: Get current song title for display
+    public static String getCurrentSongTitle() {
+        if (currentTrack == null || currentTrack.isEmpty()) {
+            return "No track playing";
+        }
+        return extractSongTitleFromUrl(currentTrack);
+    }
+
+    // NEW: Debug method to check audio state
+    public static void debugAudioState() {
+        Minesongs.LOGGER.info("=== Audio State Debug ===");
+        Minesongs.LOGGER.info("currentClip: {}", currentClip);
+        if (currentClip != null) {
+            Minesongs.LOGGER.info("isOpen: {}", currentClip.isOpen());
+            Minesongs.LOGGER.info("isRunning: {}", currentClip.isRunning());
+            Minesongs.LOGGER.info("isActive: {}", currentClip.isActive());
+            Minesongs.LOGGER.info("Frame Length: {}", currentClip.getFrameLength());
+            Minesongs.LOGGER.info("Frame Position: {}", currentClip.getFramePosition());
+        }
+        Minesongs.LOGGER.info("isPlaying: {}", isPlaying);
+        Minesongs.LOGGER.info("wasManuallyPaused: {}", wasManuallyPaused);
+        Minesongs.LOGGER.info("Current Track: {}", currentTrack);
+        Minesongs.LOGGER.info("=== End Debug ===");
     }
 
     private static String extractWithYtDlp(String youtubeUrl) {
@@ -383,49 +601,6 @@ public class MusicManager {
             Minesongs.LOGGER.warn("Direct conversion not supported, using original format");
             return originalStream;
         }
-    }
-
-    public static void togglePlayPause() {
-        if (currentClip != null && currentClip.isOpen()) {
-            if (isPlaying) {
-                currentClip.stop();
-                isPlaying = false;
-                Minesongs.LOGGER.info("Playback paused");
-            } else {
-                currentClip.start();
-                isPlaying = true;
-                Minesongs.LOGGER.info("Playback resumed");
-            }
-        } else {
-            Minesongs.LOGGER.warn("No audio clip to play/pause");
-        }
-    }
-
-    public static void skipTrack() {
-        Minesongs.LOGGER.info("Skipping current track");
-        playNextInQueue();
-    }
-
-    public static void stopCurrentPlayback() {
-        if (currentClip != null) {
-            currentClip.stop();
-            currentClip.close();
-            currentClip = null;
-            volumeControl = null;
-        }
-        if (executor != null && !executor.isShutdown()) {
-            executor.shutdownNow();
-        }
-        isPlaying = false;
-        Minesongs.LOGGER.info("Playback stopped");
-    }
-
-    public static boolean isIsPlaying() {
-        return isPlaying;
-    }
-
-    public static String getCurrentTrack() {
-        return currentTrack;
     }
 
     // Cleanup old files to prevent disk space issues

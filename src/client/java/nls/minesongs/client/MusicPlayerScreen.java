@@ -2,9 +2,9 @@ package nls.minesongs.client;
 
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.SliderWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
-import net.minecraft.client.gui.widget.SliderWidget;
 
 public class MusicPlayerScreen extends Screen {
     private TextFieldWidget urlField;
@@ -56,19 +56,28 @@ public class MusicPlayerScreen extends Screen {
             }
         }).dimensions(this.width / 2 - 100, 150, 200, 20).build());
 
-        // Play/Pause button
+        // Play/Pause button - UPDATED with HUD notifications
         this.addDrawableChild(ButtonWidget.builder(Text.literal("Play/Pause"), button -> {
+            boolean wasPlaying = nls.minesongs.MusicManager.isIsPlaying();
             nls.minesongs.MusicManager.togglePlayPause();
+            boolean nowPlaying = nls.minesongs.MusicManager.isIsPlaying();
+            String currentTrack = nls.minesongs.MusicManager.getCurrentTrack();
+
+            // Show HUD notification
+            MusicHud.onPlaybackStateChanged(nowPlaying, currentTrack);
         }).dimensions(this.width / 2 - 100, 180, 200, 20).build());
 
-        // Stop button
+        // Stop button - UPDATED with HUD notifications
         this.addDrawableChild(ButtonWidget.builder(Text.literal("Stop"), button -> {
             nls.minesongs.MusicManager.skipTrack();
+            // Show stopped notification
+            MusicHud.onPlaybackStateChanged(false, "Playback stopped");
         }).dimensions(this.width / 2 - 100, 210, 200, 20).build());
 
-        // Next Song button
+        // Next Song button - UPDATED with HUD notifications
         this.addDrawableChild(ButtonWidget.builder(Text.literal("Next Song"), button -> {
             nls.minesongs.MusicManager.skipToNext();
+            // Notification will be triggered automatically when the next song starts
         }).dimensions(this.width / 2 - 100, 240, 200, 20).build());
 
         // Clear Queue button
@@ -101,6 +110,7 @@ public class MusicPlayerScreen extends Screen {
         if (!url.isEmpty()) {
             nls.minesongs.Minesongs.LOGGER.info("Playing URL (Enter pressed): {}", url);
             nls.minesongs.MusicManager.playFromURL(url);
+            // Show playing notification - this will trigger when the song actually starts playing
         }
     }
 
